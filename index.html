@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>📋 ClipStack - 剪贴板管理器</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            background: #0f172a;
+            color: #f1f5f9;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 800px; margin: 0 auto; }
+        h1 {
+            font-size: 2rem;
+            background: linear-gradient(135deg, #6366f1, #a855f7);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 20px;
+        }
+        .input-area {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        textarea {
+            flex: 1;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            background: #1e293b;
+            color: #f1f5f9;
+            font-size: 1rem;
+            resize: vertical;
+            min-height: 80px;
+        }
+        .btn {
+            background: #6366f1;
+            color: white;
+            border: none;
+            padding: 15px 25px;
+            border-radius: 12px;
+            cursor: pointer;
+            font-size: 1rem;
+        }
+        .btn:hover { background: #4f46e5; }
+        .clip-list { display: flex; flex-direction: column; gap: 10px; }
+        .clip-item {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 12px;
+            border: 1px solid #334155;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .clip-item:hover { border-color: #6366f1; }
+        .clip-content {
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 100px;
+            overflow: hidden;
+            margin-bottom: 10px;
+        }
+        .clip-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        .clip-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .clip-actions button {
+            background: #334155;
+            color: #f1f5f9;
+            border: none;
+            padding: 5px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .empty { text-align: center; color: #94a3b8; padding: 40px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📋 ClipStack</h1>
+        
+        <div class="input-area">
+            <textarea id="clipInput" placeholder="输入文本并保存到剪贴板历史..."></textarea>
+            <button class="btn" onclick="addClip()">保存</button>
+        </div>
+        
+        <div class="clip-list" id="clipList">
+            <div class="empty">暂无剪贴板记录</div>
+        </div>
+    </div>
+
+    <script>
+        let clips = JSON.parse(localStorage.getItem('clipstack') || '[]');
+        
+        function save() {
+            localStorage.setItem('clipstack', JSON.stringify(clips));
+            render();
+        }
+        
+        function addClip() {
+            const content = document.getElementById('clipInput').value.trim();
+            if (!content) return;
+            
+            clips.unshift({
+                content,
+                time: Date.now(),
+                copied: false
+            });
+            
+            // Keep last 50
+            clips = clips.slice(0, 50);
+            
+            document.getElementById('clipInput').value = '';
+            save();
+            
+            // Copy to clipboard
+            navigator.clipboard.writeText(content);
+        }
+        
+        function copyClip(index) {
+            navigator.clipboard.writeText(clips[index].content);
+            clips[index].copied = true;
+            save();
+            setTimeout(() => {
+                clips[index].copied = false;
+                save();
+            }, 2000);
+        }
+        
+        function deleteClip(index) {
+            clips.splice(index, 1);
+            save();
+        }
+        
+        function clearAll() {
+            if (confirm('清空所有记录？')) {
+                clips = [];
+                save();
+            }
+        }
+        
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            const now = new Date();
+            const diff = now - date;
+            
+            if (diff < 60000) return '刚刚';
+            if (diff < 3600000) return Math.floor(diff / 60000) + '分钟前';
+            if (diff < 86400000) return Math.floor(diff / 3600000) + '小时前';
+            return date.toLocaleDateString();
+        }
+        
+        function render() {
+            const list = document.getElementById('clipList');
+            
+            if (clips.length === 0) {
+                list.innerHTML = '<div class="empty">暂无剪贴板记录</div>';
+                return;
+            }
+            
+            list.innerHTML = clips.map((clip, i) => `
+                <div class="clip-item" onclick="copyClip(${i})">
+                    <div class="clip-content">${clip.content}</div>
+                    <div class="clip-meta">
+                        <span>${formatTime(clip.time)} ${clip.copied ? '✅ 已复制' : ''}</span>
+                        <div class="clip-actions">
+                            <button onclick="event.stopPropagation(); copyClip(${i})">复制</button>
+                            <button onclick="event.stopPropagation(); deleteClip(${i})">删除</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Auto capture clipboard
+        let lastClip = '';
+        setInterval(async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                if (text && text !== lastClip && text.trim()) {
+                    lastClip = text;
+                    // Only add if different from last saved
+                    if (clips.length === 0 || clips[0].content !== text) {
+                        clips.unshift({ content: text, time: Date.now(), copied: false });
+                        clips = clips.slice(0, 50);
+                        save();
+                    }
+                }
+            } catch {}
+        }, 2000);
+        
+        render();
+    </script>
+</body>
+</html>
